@@ -1,0 +1,22 @@
+# challenge data and official utilities (not ours to redistribute; large)
+student_resource/
+*.mp4
+
+# pipeline intermediates and outputs (~16 GB work, ~1.4 GB output)
+business_entity_resolution/work/
+business_entity_resolution/output/
+
+# submission packages
+*.zip
+
+# python
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+# editors / OS
+.vscode/
+.idea/
+.claude/
+Thumbs.db
+.DS_Store
