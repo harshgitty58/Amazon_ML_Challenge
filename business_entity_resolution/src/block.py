@@ -97,21 +97,51 @@ def vectorize(df, kind, pool):
 def load(split, src, cols=None, country=None, rows=None):
     """Read one source (optionally one country or a set of row numbers),
     keeping each record's parquet row index in column `row`."""
-    import pyarrow as pa
-    import pyarrow.compute as pc
     import pyarrow.parquet as pq
-    t = pq.read_table(WORK_DIR / f'{split}_{src}.parquet', columns=cols)
-    idx = np.arange(t.num_rows, dtype=np.int32)
-    if country is not None:
-        mask = pc.equal(pc.cast(t['country'], pa.string()), country)
-        idx = np.flatnonzero(mask.to_numpy(zero_copy_only=False)).astype(np.int32)
-        t = t.take(idx)
+    import pandas as pd
+    import numpy as np
+
+    path = WORK_DIR / f'{split}_{src}.parquet'
+    
+    # If no filtering is needed, read all at once
+    if country is None and rows is None:
+        t = pq.read_table(path, columns=cols)
+        df = t.to_pandas()
+        df['row'] = np.arange(len(df), dtype=np.int32)
+        return df
+
+    pf = pq.ParquetFile(path)
+    out_dfs = []
+    current_row = 0
+    
     if rows is not None:
-        idx = np.asarray(rows, dtype=np.int32)
-        t = t.take(idx)
-    df = t.to_pandas()
-    df['row'] = idx
-    return df
+        rows = np.asarray(rows)
+        
+    for b in pf.iter_batches(batch_size=200000, columns=cols):
+        df_batch = b.to_pandas()
+        n = len(df_batch)
+        row_indices = np.arange(current_row, current_row + n, dtype=np.int32)
+        current_row += n
+        
+        mask = np.ones(n, dtype=bool)
+        if country is not None:
+            mask &= (df_batch['country'].values == country)
+        if rows is not None:
+            mask &= np.isin(row_indices, rows)
+            
+        if mask.any():
+            df_keep = df_batch[mask].copy()
+            df_keep['row'] = row_indices[mask]
+            out_dfs.append(df_keep)
+            
+    if out_dfs:
+        return pd.concat(out_dfs, ignore_index=True)
+    
+    empty = pf.schema.empty_table().to_pandas()
+    if cols:
+        empty = empty[cols]
+    empty['row'] = np.array([], dtype=np.int32)
+    return empty
 
 
 def countries(split):

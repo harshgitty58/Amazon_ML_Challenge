@@ -30,7 +30,7 @@ def _norm_chunk(df):
 
 def prep_file(path, out_path, translit):
     t = time.time()
-    reader = pd.read_csv(path, sep='\t', dtype=str, keep_default_na=False, chunksize=100_000)
+    reader = pd.read_csv(path, sep='\t', dtype=str, keep_default_na=False, chunksize=20_000)
     with Pool(N_JOBS, initializer=_init, initargs=(translit,)) as pool:
         parts = list(pool.imap(_norm_chunk, reader))
     df = pd.concat(parts, ignore_index=True)

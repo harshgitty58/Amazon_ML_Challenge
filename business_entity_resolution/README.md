@@ -1,6 +1,6 @@
 # Business Entity Resolution — ML Challenge 2026
 
-This pipeline finds, for every Source 1 business record, its matching records in Source 2 and Source 3. The steps are: data → normalisation → blocking → pair features → stage-1 LightGBM → sibling expansion → stage-2 LightGBM → per-entity match selection.
+This pipeline finds, for every Source 1 business record, its matching records in Source 2 and Source 3. The steps are: data → normalisation → blocking → pair features → stage-1 ensemble (LightGBM + XGBoost + CatBoost) → sibling expansion → stage-2 ensemble → per-entity match selection. Predictions from all three model types are blended with per-stage weights optimised on validation.
 
 ## Setup
 Requires Python 3.13. The full pipeline was run on Windows 11 (12 cores, 16 GB RAM, CPU only). With `BER_JOBS=5` an end-to-end run takes about 7 hours: normalisation ~15 min, blocking ~3 h, pair features ~55 min, training ~1 h, prediction ~1 h. Peak memory is about 10 GB.
@@ -12,7 +12,9 @@ By default the pipeline expects this layout:
 <root>/student_resource/dataset/{train,test}/...   # challenge data
 <root>/business_entity_resolution/src/...           # this code
 ```
-To use other locations, set `BER_DATA` (the dataset dir), `BER_WORK` (intermediate files) and `BER_OUT` (output dir). `BER_JOBS` sets the number of worker processes and threads (default: cores − 2).
+To use other locations, set `BER_DATA` (the dataset dir), `BER_WORK` (intermediate files) and `BER_OUT` (output dir). `BER_JOBS` sets the number of worker processes and threads (default: at most 5). `BER_DEVICE` selects model training on `cpu` (default) or `cuda`.
+
+To train the ensemble on an NVIDIA GPU, set `BER_DEVICE=cuda` before running `train.py` or `run_all.py`. In Windows PowerShell, use `$env:BER_DEVICE="cuda"`; in Command Prompt, use `set BER_DEVICE=cuda`. CUDA must be available to Python. XGBoost 2.0 or newer needs CUDA support, CatBoost needs GPU support, and LightGBM needs a build compiled with its CUDA backend (the standard wheel may not include it). The data preparation, blocking, and feature-generation stages remain CPU-based, so this accelerates model fitting, not the entire pipeline. CatBoost omits two CPU-specific training options in CUDA mode.
 
 ## Reproduce end-to-end
 ```
@@ -55,8 +57,9 @@ python utils/validate_submission.py --matching ../business_entity_resolution/out
 - `build_pairs.py`: prunes to the final candidate set, adds labels, fold split and features.
 - `expand.py`: sibling expansion. A record without a confident match gets as extra candidates the Source 1 entities of confidently matched records that share its normalised address, core name, name skeleton or house number + street.
 - `stack.py`: stage-2 features: competition over stage-1 probabilities, sibling features (how a record compares with the other records confidently assigned to the same entity: copies of one business share typos, spacing and unit numbers).
-- `train.py`: two-stage LightGBM training and macro-F0.5 threshold search.
+- `ensemble.py`: XGBoost and CatBoost fit/predict/save/load wrappers, hyperparameters, and blending utilities.
+- `train.py`: two-stage ensemble (LightGBM + XGBoost + CatBoost) training with blend weight optimisation and macro-F0.5 threshold search.
 - `predict.py`: scores test pairs through the same stages and writes the two TSVs.
 - `postprocess.py`: per-entity choice of how many matches to keep, by expected F0.5.
 
-No external data, APIs or pretrained models are used. The only learned model is LightGBM (MIT licence).
+No external data, APIs or pretrained models are used. The learned models are LightGBM (MIT), XGBoost (Apache 2.0) and CatBoost (Apache 2.0).
